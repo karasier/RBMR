@@ -2,16 +2,15 @@ require 'nmatrix'
 require 'zlib'
 require 'benchmark'
 ##
-#      Simple and fast library for building neural networks.
+#      Simple and fast library for building restricted boltzmann machine.
 ########################################################################
 
 module RBMR
 
-    #Sigmoid = proc { |x| 1 / (1 + Math::E**(-x)) }
+    Sigmoid = proc { |x| 1 / (1 + Math::E**(-x)) }
     ##
-    # Describes a standard fully connected NN based on backpropagation.
     class RBM
-        # Creates a NN from columns giving each the size
+        # Creates a RBM from columns giving each the size
         # of a column of neurons (input and output comprised).
         # If a block is given as argument, it will be used as
         # default transfer fuction (default: sigmoid)
@@ -23,7 +22,7 @@ module RBMR
             @columns = columns.flatten
             # The columns containing processing neurons (i.e., excluding the
             # inputs).
-
+            @neuron_columns = @columns[1..-1]
             # Set the default transfer function
             @transfer = block_given? ? Sigmoid : transfer
 
@@ -33,8 +32,8 @@ module RBMR
 
             # Create the geometry of the weight matrices
             # 可視層と隠れ層のユニット間の重みを格納
-            @weights_geometry = [@columns[0],@columns[1]]
-            puts @weights_geometry
+            @weights_geometry = @neuron_columns.zip(@columns[0..-1])
+            puts "weights_geometry: #{@weights_geometry}"
 
 
             # 可視層と隠れ層のユニットの値を格納
@@ -44,14 +43,15 @@ module RBMR
             @hidden_units_1 = @hidden_units_0.clone
 
             # シグモイド適用前の計算値を格納
-            @pre_sigmoid_hidden_0 = NMatrix.new([1,@columns[0]],0.0).transpose
+            @pre_sigmoid_hidden_0 = NMatrix.new([1,@columns[1]],0.0).transpose
             @pre_sigmoid_hidden_1 = @pre_sigmoid_visible_0.clone
-            @pre_sigmoid_visible = NMatrix.new([1,@columns[1]],0.0).transpose
+            @pre_sigmoid_visible = NMatrix.new([1,@columns[0]],0.0).transpose
 
             # 条件付き確率を格納
-            @probability_hidden_0 = @pre_sigmoid_hidden_0.clone
-            @probability_hidden_1 = @probability_hidden_0.clone
-            @probability_visible = @pre_sigmoid_visible.clone
+            @probability_hidden_0 = @pre_sigmoid_hidden_0.clone # 可視層からの確率
+            @probability_hidden_1 = @probability_hidden_0.clone # 計算後の可視層からの確率
+            @probability_visible_0 = @pre_sigmoid_visible.clone
+            @probability_visible_1 = @probability_visible_0.clone
 
             @random_geometry = @biases_geometry.clone
         end
@@ -77,6 +77,7 @@ module RBMR
             puts "@weights: #{@weights}"
 
             @random_value = @random_geometry.map { |geo| NMatrix.random(geo,:dtype => :float64)}
+            puts "@random_value: #{@random_value}"
         end
 
         # RBMへの入力を取得
@@ -86,24 +87,27 @@ module RBMR
         end
 
         def probability_hidden_0_compute
-          puts "@visible_units_0: #{@visible_units_0}"
-          puts "@weights: #{@weights}"
-          puts "@biases[1]: #{@biases[1]}"
-          @pre_sigmoid_hidden_0 = NMatrix::BLAS.gemm(@visible_units_0,@weights,@biases[1])
+          @pre_sigmoid_hidden_0 = NMatrix::BLAS.gemm(@visible_units_0,@weights[0],@biases[1])
           @pre_sigmoid_hidden_0.each_with_index do |data,i|
             @probability_hidden_0[i] = Sigmoid.call(data)
           end
         end
 
-        def probability_visible_compute
-          @pre_sigmoid_visible = NMatrix::BLAS.gemm(@weights,@hidden_units_0,@biases[0])
+        def probability_visible_0_compute
+          @probability_visible_0.size.times do |i|
+            @probability_visible_0[i] = 1/@columns[0].to_f
+          end
+        end
+
+        def probability_visible_1_compute
+          @pre_sigmoid_visible = NMatrix::BLAS.gemm(@weights[0],@hidden_units_0,@biases[0])
           @pre_sigmoid_visible.each_with_index do |data,i|
-            @probability_visible[i] = Sigmoid.call(data)
+            @probability_visible_1[i] = Sigmoid.call(data)
           end
         end
 
         def probability_hidden_1_compute
-          @pre_sigmoid_hidden_1 = NMatrix::BLAS.gemm(@visible_units_1,@weights,@biases[1])
+          @pre_sigmoid_hidden_1 = NMatrix::BLAS.gemm(@visible_units_1,@weights[0],@biases[1])
           @pre_sigmoid_hidden_1.each_with_index do |data,i|
             @probability_hidden_1[i] = Sigmoid.call(data)
           end
@@ -111,7 +115,7 @@ module RBMR
 
         def hidden_units_0_compute
           @probability_hidden_0.size.times do |i|
-            if @probability_hidden_0[i] > @random_value[1,i] then
+            if @probability_hidden_0[i] > @random_value[1][i] then
               @hidden_units_0[i] = 1
             else
               @hidden_units_0[i] = 0
@@ -120,8 +124,8 @@ module RBMR
         end
 
         def visible_units_1_compute
-          @probability_visible.size.times do |i|
-            if @probability_visible[i] > @random_value[0,i] then
+          @probability_visible_1.size.times do |i|
+            if @probability_visible_1[i] > @random_value[0][i] then
               @visible_units_1[i] = 1
             else
               @visible_units_1[i] = 0
@@ -131,7 +135,7 @@ module RBMR
 
         def hidden_units_1_compute
           @probability_hidden_1.size.times do |i|
-            if @probability_hidden_1[i] > @random_value[1,i] then
+            if @probability_hidden_1[i] > @random_value[1][i] then
               @hidden_units_1[i] = 1
             else
               @hidden_units_1[i] = 0
@@ -148,12 +152,19 @@ module RBMR
         # 入力層から順方向に計算するメソッド
         # 最初に入力されたニューラルネットワークの層の回数計算する
         def propagate
+          probability_visible_0_compute
           probability_hidden_0_compute
           hidden_units_0_compute
-          probability_visible_compute
+          probability_visible_1_compute
           visible_units_1_compute
           probability_hidden_1_compute
           hidden_units_1_compute
+          puts "@probability_hidden_0: #{@probability_hidden_0}"
+          puts "@probability_hidden_1: #{@probability_hidden_1}"
+          puts "@probability_visible_0: #{@probability_visible_0}"
+          puts "@probability_visible_1: #{@probability_visible_1}"
+
+          puts "@visible_units_1: #{@visible_units_1}"
         end
 
         # 重みとバイアスを出力
