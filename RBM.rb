@@ -28,32 +28,27 @@ module RBMR
 
             # Creates the geometry of the bias matrices
             # 可視層と隠れ層のバイアスを格納
-            @biases_geometry = @columns.map { |col| [col,1] }
-
+            # 隠れ層→可視層の順で格納
+            @biases_geometry = @columns.reverse.map { |col| [col,1] }
             # Create the geometry of the weight matrices
             # 可視層と隠れ層のユニット間の重みを格納
             @weights_geometry = @neuron_columns.zip(@columns[0..-1])
-            puts "weights_geometry: #{@weights_geometry}"
-
 
             # 可視層と隠れ層のユニットの値を格納
-            @visible_units_0 = NMatrix.new([1,@columns[0]],0.0).transpose
-            @hidden_units_0 = NMatrix.new([1,@columns[1]],0.0).transpose
-            @visible_units_1 = @visible_units_0.clone
-            @hidden_units_1 = @hidden_units_0.clone
-
-            # シグモイド適用前の計算値を格納
-            @pre_sigmoid_hidden_0 = NMatrix.new([1,@columns[1]],0.0).transpose
-            @pre_sigmoid_hidden_1 = @pre_sigmoid_visible_0.clone
-            @pre_sigmoid_visible = NMatrix.new([1,@columns[0]],0.0).transpose
+            # 可視層→隠れ層の順で格納
+            @units = @columns.map{ |col| NMatrix.new([1,col],0.0).transpose }
 
             # 条件付き確率を格納
-            @probability_hidden_0 = @pre_sigmoid_hidden_0.clone # 可視層からの確率
-            @probability_hidden_1 = @probability_hidden_0.clone # 計算後の可視層からの確率
-            @probability_visible_0 = @pre_sigmoid_visible.clone
-            @probability_visible_1 = @probability_visible_0.clone
+            # P(hidden|visible)→P(visible|hidden)の順で格納
+            @probability = @columns.reverse.map{ |col| NMatrix.new([1,col],0.0).transpose }
+
+            @probability[1].size.times do |i|
+              @probability[1][i] = 1/@columns[0].to_f
+            end
 
             @random_geometry = @biases_geometry.clone
+
+            @visible_probability_0 = @probability[1].dup
         end
 
 
@@ -77,110 +72,65 @@ module RBMR
             puts "@weights: #{@weights}"
 
             @random_value = @random_geometry.map { |geo| NMatrix.random(geo,:dtype => :float64)}
-            puts "@random_value: #{@random_value}"
         end
 
         # RBMへの入力を取得
         # 引数: *vaules→入力
         def input(*values)
-            @visible_units_0[0] = N[values.flatten,:dtype => :float64].transpose
+          @inputs = N[values.flatten,:dtype => :float64].transpose
+          @units[0] = @inputs.clone
         end
 
-        def probability_hidden_0_compute
-          @pre_sigmoid_hidden_0 = NMatrix::BLAS.gemm(@visible_units_0,@weights[0],@biases[1])
-          @pre_sigmoid_hidden_0.each_with_index do |data,i|
-            @probability_hidden_0[i] = Sigmoid.call(data)
+        # P(h|v)と隠れ層のユニットの値を計算
+        def compute_visible
+          @pre_sigmoid = NMatrix::BLAS.gemm(@units[0],@weights[0],@biases[0])
+          @pre_sigmoid.each_with_index do |data,i|
+            @probability[0][i] = Sigmoid.call(data)
           end
-        end
 
-        def probability_visible_0_compute
-          @probability_visible_0.size.times do |i|
-            @probability_visible_0[i] = 1/@columns[0].to_f
-          end
-        end
+          @random_value = @random_geometry.map { |geo| NMatrix.random(geo,:dtype => :float64)}
 
-        def probability_visible_1_compute
-          @pre_sigmoid_visible = NMatrix::BLAS.gemm(@weights[0],@hidden_units_0,@biases[0])
-          @pre_sigmoid_visible.each_with_index do |data,i|
-            @probability_visible_1[i] = Sigmoid.call(data)
-          end
-        end
-
-        def probability_hidden_1_compute
-          @pre_sigmoid_hidden_1 = NMatrix::BLAS.gemm(@visible_units_1,@weights[0],@biases[1])
-          @pre_sigmoid_hidden_1.each_with_index do |data,i|
-            @probability_hidden_1[i] = Sigmoid.call(data)
-          end
-        end
-
-        def hidden_units_0_compute
-          @probability_hidden_0.size.times do |i|
-            if @probability_hidden_0[i] > @random_value[1][i] then
-              @hidden_units_0[i] = 1
+          @probability[0].size.times do |i|
+            if @probability[0][i] > @random_value[0][i] then
+              @units[1][i] = 1
             else
-              @hidden_units_0[i] = 0
+              @units[1][i] = 0
             end
           end
         end
 
-        def visible_units_1_compute
-          @probability_visible_1.size.times do |i|
-            if @probability_visible_1[i] > @random_value[0][i] then
-              @visible_units_1[i] = 1
+        # P(v|h)と可視層のユニットの値を計算
+        def compute_hidden
+          @pre_sigmoid = NMatrix::BLAS.gemm(@weights[0],@units[1],@biases[1])
+          @pre_sigmoid.each_with_index do |data,i|
+            @probability[1][i] = Sigmoid.call(data)
+          end
+
+          @random_value = @random_geometry.map { |geo| NMatrix.random(geo,:dtype => :float64)}
+
+          @probability[1].size.times do |i|
+            if @probability[1][i] > @random_value[1][i] then
+              @units[0][i] = 1
             else
-              @visible_units_1[i] = 0
+              @units[0][i] = 0
             end
           end
         end
 
-        def hidden_units_1_compute
-          @probability_hidden_1.size.times do |i|
-            if @probability_hidden_1[i] > @random_value[1][i] then
-              @hidden_units_1[i] = 1
-            else
-              @hidden_units_1[i] = 0
-            end
-          end
-        end
-        # z = inputs * weights + biases
-        # z = 入力値×重み+バイアス
-        # zは長さの違う配列を複数持つ配列
-        # zは活性化関数適用前の状態
-        # 活性化関数への入力値を計算するメソッド
-        # 引数:row 現在の層のインデックス →　現在が何層目かを表す。
-
-        # 入力層から順方向に計算するメソッド
-        # 最初に入力されたニューラルネットワークの層の回数計算する
+        # 計算するメソッド
         def propagate
-          probability_visible_0_compute
-          probability_hidden_0_compute
-          hidden_units_0_compute
-          probability_visible_1_compute
-          visible_units_1_compute
-          probability_hidden_1_compute
-          hidden_units_1_compute
-          puts "@probability_hidden_0: #{@probability_hidden_0}"
-          puts "@probability_hidden_1: #{@probability_hidden_1}"
-          puts "@probability_visible_0: #{@probability_visible_0}"
-          puts "@probability_visible_1: #{@probability_visible_1}"
-
-          puts "@visible_units_1: #{@visible_units_1}"
-        end
-
-        # 重みとバイアスを出力
-        def backpropagate_outputs(row)
-          puts "weights=#{@weights[row]}"
-          puts "biases=#{@biases[row]}"
-        end
-
-        # 入力値と状態を出力
-        def propagate_outputs(row)
-          puts "a=#{@a[row]}"
-          puts "z=#{@z[row]}"
-        end
-
-        def outputs
-          @a[@neuron_columns.size]
+          compute_visible
+          @hidden_probability_0 = @probability[0].dup
+          10.times do |i|
+            compute_hidden
+            compute_visible
+          end
+          puts "@inputs: #{@inputs}"
+          puts "P(h|v)_0: #{@hidden_probability_0}"
+          puts "P(v|h)_0: #{@visible_probability_0}"
+          puts "P(h|v)_1: #{@probability[0]}"
+          puts "P(v|h)_1: #{@probability[1]}"
+          puts "visible: #{@units[0]}"
         end
 
         def run(time)
