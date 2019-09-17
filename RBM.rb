@@ -177,22 +177,24 @@ module RBMR
           compute_expected_weights_derivative_k
         end
 
+        # バイアスの更新用
         def update_biases
           @biases[0] += (@expected_units_k[1] - @expected_units_0[1]) * @training_rate
           @biases[1] += (@expected_units_k[0] - @expected_units_0[0]) * @training_rate
         end
 
+        # 重みの更新用
         def update_weights
           @weights[0] += (@expected_weights_derivative_k[0] - @expected_weights_derivative_0[0]) * @training_rate
         end
 
         # 計算するメソッド
-        def propagate
+        def propagate(number_of_steps)
           compute_visible
           # 最初のステップの隠れ層のユニット値とP(h|v)を保存
           @hidden_units_0 = @units[1].dup
           @hidden_probability_0 = @probability[0].dup
-          10.times do |i|
+          number_of_steps.times do |i|
             compute_hidden
             compute_visible
           end
@@ -205,11 +207,9 @@ module RBMR
         end
 
         # 実行用
-        def run(time)
-          time.times do |trial|
-            propagate
-            compute_expected_values
-          end
+        def run(number_of_steps)
+          propagate(number_of_steps)
+          compute_expected_values        
         end
 
         # 結果の出力用
@@ -224,6 +224,7 @@ module RBMR
           puts "P(v|h)_k: #{@probability[1]}"
         end
 
+        # パラメータをファイルに保存するメソッド
         def save_parameters(filename)
           hash = {"@number_of_data" => @number_of_data,"@columns" => @columns,"@biases" => @biases,"@weights" => @weights}
           File.open(filename,"w+") do |f|
@@ -231,6 +232,7 @@ module RBMR
           end
         end
 
+        # パラメータをファイルから読み込むメソッド
         def load_parameters(filename)
           File.open(filename,"r+") do |f|
             hash = JSON.load(f)
