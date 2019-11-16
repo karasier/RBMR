@@ -20,11 +20,14 @@ data = [[1,1,1,0,0,0],[0,0,1,1,0,0],[0,0,0,1,1,1]]
     rbm.run(1)
 
   end
+  # get cross entropy
+  cost = rbm.compute_mean_cross_entropy
+  puts "epoch : #{i} , cost : #{cost}"
   # update biases & weights
   rbm.update_parameters
 end
 
-
+puts "finished"
 # check
 rbm.input([0,0,1,1,1,1])
 rbm.run(1)

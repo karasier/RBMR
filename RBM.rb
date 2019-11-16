@@ -2,6 +2,7 @@ require 'nmatrix'
 require 'zlib'
 require 'benchmark'
 require 'json'
+
 ##
 #      Simple and fast library for building restricted boltzmann machine.
 ########################################################################
@@ -71,6 +72,11 @@ module RBMR
 
             # ユニット値のサンプリング用
             @random_geometry = @biases_geometry.clone
+
+            @cross_entropy = @units[0].dup
+
+            @bias_visible_derivate = @units[0].dup
+            @bias_hidden_derivate = @units[1].dup
         end
 
 
@@ -161,16 +167,23 @@ module RBMR
 
         # 重みの導関数の期待値(0ステップ目)を計算
         def compute_expected_weights_derivative_0
-          @expected_weights_derivative_0[0] += NMatrix::BLAS.gemm(@expected_units_0[1],@expected_units_0[0].transpose)
+          @expected_weights_derivative_0[0] += NMatrix::BLAS.gemm(@hidden_probability_0,@visible_units_0.transpose)
         end
 
         # 重みの導関数の期待値(kステップ目)を計算
         def compute_expected_weights_derivative_k
-          @expected_weights_derivative_k[0] += NMatrix::BLAS.gemm(@expected_units_k[1],@expected_units_k[0].transpose)
+          @expected_weights_derivative_k[0] += NMatrix::BLAS.gemm(@probability[0],@units[0].transpose)
+        end
+
+        # バイアスの導関数の計算
+        def compute_expected_biases
+          @bias_visible_derivate += (@visible_units_0 - @units[0])
+          @bias_hidden_derivate += (@hidden_probability_0 - @probability[0])
         end
 
         # 期待値の計算
         def compute_expected_values
+          compute_expected_biases
           compute_expected_units_0
           compute_expected_units_k
           compute_expected_weights_derivative_0
@@ -179,17 +192,17 @@ module RBMR
 
         # バイアスの更新用
         def update_biases
-          @biases[0] += (@expected_units_k[1] - @expected_units_0[1]) * @training_rate
-          @biases[1] += (@expected_units_k[0] - @expected_units_0[0]) * @training_rate
+          @biases[0] +=  @bias_hidden_derivate * @training_rate
+          @biases[1] +=  @bias_visible_derivate * @training_rate
         end
 
         # 重みの更新用
         def update_weights
-          @weights[0] += (@expected_weights_derivative_k[0] - @expected_weights_derivative_0[0]) * @training_rate
+          @weights[0] += (@expected_weights_derivative_0[0] - @expected_weights_derivative_k[0]) * @training_rate
         end
 
         # 計算するメソッド
-        def propagate(number_of_steps)
+        def sampling(number_of_steps)
           compute_visible
           # 最初のステップの隠れ層のユニット値とP(h|v)を保存
           @hidden_units_0 = @units[1].dup
@@ -198,6 +211,8 @@ module RBMR
             compute_hidden
             compute_visible
           end
+
+          compute_cross_entropy
         end
 
         # 重みとバイアスの更新
@@ -206,10 +221,38 @@ module RBMR
           update_weights
         end
 
+        # 交差エントロピーの計算
+        def compute_cross_entropy
+          @log_probability = @probability[1].dup
+          @probability[1].each_with_index do |data,i|
+            @log_probability[i] = Math.log(data)
+          end
+
+          @log_probability_dash = @probability[1].dup
+          @probability[1].each_with_index do |data,i|
+            @log_probability_dash[i] = Math.log(1 - data)
+          end
+
+          @visible_units_0_dash = @visible_units_0.dup
+          @visible_units_0_dash.each_with_index do |data,i|
+            @visible_units_0_dash[i] = 1 - data
+          end
+
+          @cross_entropy += ((@visible_units_0 * @log_probability) + (@visible_units_0_dash * @log_probability_dash))
+        end
+
+        # 平均交差エントロピーの計算
+        def compute_mean_cross_entropy
+          # 交差エントロピーの最小化はKLダイバージェンスの最小化と等しい
+          # 真の確率分布のエントロピーは一定のため
+          @mean_cross_entropy = -@cross_entropy.sum/@number_of_data.to_f
+          return @mean_cross_entropy
+        end
+
         # 実行用
         def run(number_of_steps)
-          propagate(number_of_steps)
-          compute_expected_values        
+          sampling(number_of_steps)
+          compute_expected_values
         end
 
         # 結果の出力用
