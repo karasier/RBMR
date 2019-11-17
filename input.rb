@@ -1,7 +1,7 @@
 require_relative 'RBM'
 
 # usage: var = RBMR::RBM.new([columns],number_of_data)
-rbm = RBMR::RBM.new([6,4],3)
+rbm = RBMR::RBM.new([6,4],1)
 
 # randomize biases & weights
 #rbm.randomize
@@ -9,7 +9,7 @@ rbm = RBMR::RBM.new([6,4],3)
 # load biases & weights from a file
 rbm.load_parameters("parameters.json")
 
-data = [[1,1,1,0,0,0],[0,0,1,1,0,0],[0,0,0,1,1,1]]
+data = [[1,1,1,0,0,0]]
 
 1000.times do |i|
   data.size.times do |j|
