@@ -1,4 +1,4 @@
-require_relative 'RBM'
+require_relative 'RBMR'
 
 # usage: var = RBMR::RBM.new([columns],number_of_data)
 rbm = RBMR::RBM.new([6,4],1)
@@ -11,7 +11,7 @@ rbm.load_parameters("parameters.json")
 
 data = [[1,1,1,0,0,0]]
 
-1000.times do |i|
+100.times do |i|
   data.size.times do |j|
     # usage: var.input([inputs])
     rbm.input(data[j])
@@ -20,21 +20,20 @@ data = [[1,1,1,0,0,0]]
     rbm.run(1)
 
   end
+  # update biases & weights
+  rbm.update_parameters
+  rbm.initialize_derivatives
+
   # get cross entropy
   cost = rbm.compute_mean_cross_entropy
   puts "epoch : #{i} , cost : #{cost}"
-  # update biases & weights
-  rbm.update_parameters
 end
 
-puts "finished"
+puts "\nUnderstood!\n\n"
 # check
-rbm.input([0,0,1,1,1,1])
-rbm.run(1)
-rbm.outputs
-rbm.input([1,1,0,0,0,1])
-rbm.run(1)
+rbm.input([1,1,1,0,0,0])
+rbm.reconstruct
 rbm.outputs
 
 # save biases & weights to a file
-rbm.save_parameters("parameters.json")
+#rbm.save_parameters("parameters.json")
