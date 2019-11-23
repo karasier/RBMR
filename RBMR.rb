@@ -17,7 +17,7 @@ module RBMR
         # of a column of neurons (input and output comprised).
         # If a block is given as argument, it will be used as
         # default transfer fuction (default: sigmoid)
-        def initialize(*columns,number_of_data,&transfer)
+        def initialize(*columns,&transfer)
             # 学習率
             @training_rate = 0.1
             # Ensure columns is a proper array.
@@ -29,8 +29,6 @@ module RBMR
             # Set the default transfer function
             @transfer = block_given? ? Sigmoid : transfer
 
-            # データ数を格納
-            @number_of_data = number_of_data
             # Creates the geometry of the bias matrices
             # 可視層と隠れ層のバイアスを格納
             # 隠れ層→可視層の順で格納
@@ -49,11 +47,6 @@ module RBMR
             # 条件付き確率を格納
             # P(hidden|visible)→P(visible|hidden)の順で格納
             @probability = @columns.reverse.map{ |col| NMatrix.new([1,col],0.0).transpose }
-
-            #P(v|h)_0を計算
-            #@probability[1].size.times do |i|
-            #  @probability[1][i] = 1/@number_of_data.to_f
-            #end
 
             # ユニット値のサンプリング用
             @random_geometry = @biases_geometry.clone
@@ -87,6 +80,7 @@ module RBMR
 
             # Create random fast matrices for the weights.
             # NMatrixの配列を作成 重み
+            # ガウス分布に従うように重みをランダムに初期化
             weights_array = []
             @weights_geometry[0][0].times do |i|
               @weights_geometry[0][1].times do |j|
@@ -112,7 +106,7 @@ module RBMR
         # P(h|v)と隠れ層のユニットの値を計算
         def compute_visible
           # 条件付き確率を計算
-          @pre_sigmoid = NMatrix::BLAS.gemm(@units[0],@weights[0],@biases[0])
+          @pre_sigmoid = NMatrix::BLAS.gemm(@weights[0],@units[0],@biases[0])
           @pre_sigmoid.each_with_index do |data,i|
             @probability[0][i] = Sigmoid.call(data)
           end
@@ -132,7 +126,7 @@ module RBMR
         # P(v|h)と可視層のユニットの値を計算
         def compute_hidden
           # 条件付き確率を計算
-          @pre_sigmoid = NMatrix::BLAS.gemm(@weights[0],@units[1],@biases[1])
+          @pre_sigmoid = NMatrix::BLAS.gemm(@weights[0],@units[1],nil,1.0,0.0,:transpose) + @biases[1]
           @pre_sigmoid.each_with_index do |data,i|
             @probability[1][i] = Sigmoid.call(data)
           end
@@ -166,14 +160,14 @@ module RBMR
 
         # 重みの導関数を計算
         def weights_derivative
-          @expected_weights_0[0] += NMatrix::BLAS.gemm(@hidden_probability_0,@visible_units_0.transpose)
-          @expected_weights_k[0] += NMatrix::BLAS.gemm(@probability[0],@units[0].transpose)
+          @expected_weights_0[0] = NMatrix::BLAS.gemm(@hidden_probability_0,@visible_units_0.transpose)
+          @expected_weights_k[0] = NMatrix::BLAS.gemm(@probability[0],@units[0].transpose)
         end
 
         # バイアスの導関数を計算
         def bias_derivative
-          @derivative_visible_bias += (@visible_units_0 - @units[0])
-          @derivative_hidden_bias += (@hidden_probability_0 - @probability[0])
+          @derivative_visible_bias = (@visible_units_0 - @units[0])
+          @derivative_hidden_bias = (@hidden_probability_0 - @probability[0])
         end
 
         # 期待値の計算
@@ -184,13 +178,13 @@ module RBMR
 
         # バイアスの更新
         def update_biases
-          @biases[0] +=  (@derivative_hidden_bias / @number_of_data) * @training_rate
-          @biases[1] +=  (@derivative_visible_bias / @number_of_data) * @training_rate
+          @biases[0] +=  (@derivative_hidden_bias) * @training_rate
+          @biases[1] +=  (@derivative_visible_bias) * @training_rate
         end
 
         # 重みの更新
         def update_weights
-          @weights[0] += (@expected_weights_0[0] - @expected_weights_k[0]) * @training_rate
+          @weights[0] += (@expected_weights_0[0] - @expected_weights_k[0])* @training_rate
         end
 
         # 重みとバイアスの更新
@@ -218,13 +212,11 @@ module RBMR
           @log_probability = @probability[1].dup
           @probability[1].each_with_index do |data,i|
             @log_probability[i] = Math.log(data)
-            puts data
           end
 
           @log_probability_dash = @probability[1].dup
           @probability[1].each_with_index do |data,i|
             @log_probability_dash[i] = Math.log(1 - data)
-            puts 1-data
           end
 
           @visible_units_0_dash = @visible_units_0.dup
@@ -236,10 +228,10 @@ module RBMR
         end
 
         # 平均交差エントロピーの計算
-        def compute_mean_cross_entropy
+        def compute_mean_cross_entropy(number_of_data)
           # 交差エントロピーの最小化はKLダイバージェンスの最小化と等しい
           # 真の確率分布のエントロピーは一定のため
-          @mean_cross_entropy = -@cross_entropy.sum/@number_of_data.to_f
+          @mean_cross_entropy = -@cross_entropy.sum/number_of_data.to_f
           @cross_entropy = NMatrix.new([1,@units[0].size],0.0).transpose
           return @mean_cross_entropy
         end
@@ -248,6 +240,7 @@ module RBMR
         def run(number_of_steps)
           sampling(number_of_steps)
           compute_derivatives
+          update_parameters
         end
 
         def reconstruct
@@ -260,12 +253,12 @@ module RBMR
         def outputs
           puts "visible_0: #{@visible_units_0}"
           puts "visible_k: #{@units[0]}"
-          puts "P(v|h)_k: #{@probability[1]}"
+          puts "P(v|h): #{@probability[1]}"
         end
 
         # パラメータをファイルに保存するメソッド
         def save_parameters(filename)
-          hash = {"@number_of_data" => @number_of_data,"@columns" => @columns,"@biases" => @biases,"@weights" => @weights}
+          hash = {"@columns" => @columns,"@biases" => @biases,"@weights" => @weights}
           File.open(filename,"w+") do |f|
             f.puts(JSON.pretty_generate(hash))
           end
@@ -275,9 +268,7 @@ module RBMR
         def load_parameters(filename)
           File.open(filename,"r+") do |f|
             hash = JSON.load(f)
-            @number_of_data = hash["@number_of_data"]
-            @columns = hash["@columns"]
-            initialize(@columns,@number_of_data)
+            initialize(@columns)
 
             biases_matrix = hash["@biases"].to_a
             @biases = []
