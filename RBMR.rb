@@ -44,22 +44,19 @@ module RBMR
             # 0ステップ目のユニットの値を格納
             @visible_units_0 = NMatrix.new([1,@units[0].size],0.0).transpose
 
-            # 条件付き確率を格納
+            # ユニットが1をとる条件付き確率を格納
             # P(hidden|visible)→P(visible|hidden)の順で格納
             @probability = @columns.reverse.map{ |col| NMatrix.new([1,col],0.0).transpose }
 
-            # ユニット値のサンプリング用
+            # ユニット値のサンプリング用の一様乱数 区間[0,1]
             @random_geometry = @biases_geometry.clone
 
             # バイアスの導関数
             @derivative_visible_bias = NMatrix.new([1,@units[0].size],0.0).transpose
             @derivative_hidden_bias = NMatrix.new([1,@units[1].size],0.0).transpose
 
-            # 重みの導関数の計算用の期待値
-            @expected_weights_0 = @weights_geometry.map do |geo|
-                NMatrix.new(geo,0.0)
-            end
-            @expected_weights_k = @weights_geometry.map do |geo|
+            # 重みの導関数
+            @derivative_weights = @weights_geometry.map do |geo|
                 NMatrix.new(geo,0.0)
             end
 
@@ -103,9 +100,18 @@ module RBMR
           @units[0] = @visible_units_0.dup
         end
 
+        # 隠れ層への入力
+        def input_hidden_layer(*values)
+          @units[1] = N[values.flatten,:dtype => :float64].transpose
+          compute_hidden
+          puts "hidden_units: #{@units[1]}"
+          puts "visible units: #{@units[0]}"
+          puts "P(v|h): #{@probability[1]}"
+        end
+
         # P(h|v)と隠れ層のユニットの値を計算
         def compute_visible
-          # 条件付き確率を計算
+          # 隠れ層の条件付き確率を計算
           @pre_sigmoid = NMatrix::BLAS.gemm(@weights[0],@units[0],@biases[0])
           @pre_sigmoid.each_with_index do |data,i|
             @probability[0][i] = Sigmoid.call(data)
@@ -125,7 +131,7 @@ module RBMR
 
         # P(v|h)と可視層のユニットの値を計算
         def compute_hidden
-          # 条件付き確率を計算
+          # 可視層の条件付き確率を計算
           @pre_sigmoid = NMatrix::BLAS.gemm(@weights[0],@units[1],nil,1.0,0.0,:transpose) + @biases[1]
           @pre_sigmoid.each_with_index do |data,i|
             @probability[1][i] = Sigmoid.call(data)
@@ -146,22 +152,19 @@ module RBMR
 
         # 導関数の初期化
         def initialize_derivatives
+          # バイアスの導関数の初期化
           @derivative_visible_bias = NMatrix.new([1,@units[0].size],0.0).transpose
           @derivative_hidden_bias = NMatrix.new([1,@units[1].size],0.0).transpose
 
-          # 重み更新用の期待値
-          @expected_weights_0 = @weights_geometry.map do |geo|
-              NMatrix.new(geo,0.0)
-          end
-          @expected_weights_k = @weights_geometry.map do |geo|
+          # 重みの導関数の初期化
+          @derivative_weights = @weights_geometry.map do |geo|
               NMatrix.new(geo,0.0)
           end
         end
 
         # 重みの導関数を計算
         def weights_derivative
-          @expected_weights_0[0] = NMatrix::BLAS.gemm(@hidden_probability_0,@visible_units_0.transpose)
-          @expected_weights_k[0] = NMatrix::BLAS.gemm(@probability[0],@units[0].transpose)
+          @derivative_weights = NMatrix::BLAS.gemm(@hidden_probability_0,@visible_units_0.transpose) - NMatrix::BLAS.gemm(@probability[0],@units[0].transpose)
         end
 
         # バイアスの導関数を計算
@@ -170,7 +173,7 @@ module RBMR
           @derivative_hidden_bias = (@hidden_probability_0 - @probability[0])
         end
 
-        # 期待値の計算
+        # 導関数の計算
         def compute_derivatives
           bias_derivative
           weights_derivative
@@ -178,13 +181,13 @@ module RBMR
 
         # バイアスの更新
         def update_biases
-          @biases[0] +=  (@derivative_hidden_bias) * @training_rate
-          @biases[1] +=  (@derivative_visible_bias) * @training_rate
+          @biases[0] += @derivative_hidden_bias * @training_rate
+          @biases[1] += @derivative_visible_bias * @training_rate
         end
 
         # 重みの更新
         def update_weights
-          @weights[0] += (@expected_weights_0[0] - @expected_weights_k[0])* @training_rate
+          @weights[0] += @derivative_weights * @training_rate
         end
 
         # 重みとバイアスの更新
@@ -243,21 +246,23 @@ module RBMR
           update_parameters
         end
 
-        def reconstruct
+        def reconstruct(*values)
+          input(values)
           compute_visible
           compute_hidden
           compute_visible
+          outputs
         end
 
         # 結果の出力用
         def outputs
-          puts "visible_0: #{@visible_units_0}"
-          puts "visible_k: #{@units[0]}"
+          puts "input: #{@visible_units_0}"
+          puts "visible units: #{@units[0]}"
           puts "P(v|h): #{@probability[1]}"
         end
 
         # パラメータをファイルに保存するメソッド
-        def save_parameters(filename)
+        def save_parameters(filename)          
           hash = {"@columns" => @columns,"@biases" => @biases,"@weights" => @weights}
           File.open(filename,"w+") do |f|
             f.puts(JSON.pretty_generate(hash))

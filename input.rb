@@ -6,12 +6,12 @@ rbm = RBMR::RBM.new([6,4])
 # randomize biases & weights
 #rbm.randomize
 
-# load biases & weights from a file
+# load biases & weights from .json file
 rbm.load_parameters("parameters.json")
 
 data = [[1,1,1,0,0,0]]
 
-10.times do |i|
+1000.times do |i|
   data.size.times do |j|
     # usage: var.input([inputs])
     rbm.input(data[j])
@@ -25,10 +25,12 @@ data = [[1,1,1,0,0,0]]
 end
 
 puts "\nUnderstood!\n\n"
-# check
-rbm.input([1,1,1,0,0,0])
-rbm.reconstruct
-rbm.outputs
 
-# save biases & weights to a file
+# check
+rbm.reconstruct([1,1,1,0,0,0])
+
+# reconstruct from feature
+# rbm.input_hidden_layer(4.times.map{rand(0..1).to_i})
+
+# save biases & weights to .json file
 rbm.save_parameters("parameters.json")
