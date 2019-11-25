@@ -65,6 +65,8 @@ module RBMR
 
             # μ = 0, σ = 0.01のガウス分布を作成
             @bell = RandomBell.new(mu: 0, sigma: 0.01, range: -0.03..0.03)
+
+            @error = 0
         end
 
 
@@ -239,6 +241,22 @@ module RBMR
           return @mean_cross_entropy
         end
 
+        def get_error_rate(times)
+          error = false
+
+          @units[0].size.times do |i|
+            if @units[0][i] != @visible_units_0[i] then
+              error = true
+            end
+          end
+
+          if error then
+            @error += 1
+          end
+
+          #puts "erorr_rate:#{@error.to_f / times.to_f}"
+          return @error.to_f/times.to_f
+        end
         # 実行用
         def run(number_of_steps)
           sampling(number_of_steps)
@@ -262,7 +280,7 @@ module RBMR
         end
 
         # パラメータをファイルに保存するメソッド
-        def save_parameters(filename)          
+        def save_parameters(filename)
           hash = {"@columns" => @columns,"@biases" => @biases,"@weights" => @weights}
           File.open(filename,"w+") do |f|
             f.puts(JSON.pretty_generate(hash))
