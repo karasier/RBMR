@@ -18,6 +18,7 @@ data = [[1,1,1,0,0,0]]
 
     # usage: var.run(number_of_steps) step→Gibbs Sampling step
     rbm.run(1)
+    rbm.compute_cross_entropy
   end
   error_rate = rbm.get_error_rate(i+1)
   # get cross entropy
