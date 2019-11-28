@@ -1,5 +1,4 @@
 require 'nmatrix'
-require 'zlib'
 require 'benchmark'
 require 'json'
 require 'random_bell'
@@ -21,29 +20,28 @@ module RBMR
             # Ensure columns is a proper array.
             # 各層のニューロンの数を配列にする
             @columns = columns.flatten
-            # The columns containing processing neurons (i.e., excluding the
-            # inputs).
-            @neuron_columns = @columns[1..-1]
 
             # Creates the geometry of the bias matrices
             # 可視層と隠れ層のバイアスを格納
             # 隠れ層→可視層の順で格納
-            @biases_geometry = @columns.reverse.map { |col| [col,1] }
+            @biases_geometry = @columns.reverse.map { |col| [1,col] }
+
             # Create the geometry of the weight matrices
             # 可視層と隠れ層のユニット間の重みを格納
-            @weights_geometry = @neuron_columns.zip(@columns[0..-1])
+            @weights_geometry = @columns[0..1]
 
+            # Create units matrices
             # 可視層と隠れ層のユニットの値を格納
             # 可視層→隠れ層の順で格納
-            @units = @columns.map{ |col| NMatrix.new([1,col],0.0).transpose }
+            @units = @columns.map{ |col| NMatrix.new([1,col],0.0) }
 
             # ユニットが1をとる条件付き確率を格納
             # P(hidden|visible)→P(visible|hidden)の順で格納
-            @probability = @columns.reverse.map{ |col| NMatrix.new([1,col],0.0).transpose }
+            @probability = @columns.reverse.map{ |col| NMatrix.new([1,col],0.0) }
 
             # バイアスの導関数
-            @derivative_visible_bias = NMatrix.new([1,@units[0].size],0.0).transpose
-            @derivative_hidden_bias = NMatrix.new([1,@units[1].size],0.0).transpose
+            @derivative_visible_bias = NMatrix.new([1,@units[0].size],0.0)
+            @derivative_hidden_bias = NMatrix.new([1,@units[1].size],0.0)
 
             # 重みの導関数
             @derivative_weights = @weights_geometry.map do |geo|
@@ -51,7 +49,7 @@ module RBMR
             end
 
             # 交差エントロピー計算用
-            @cross_entropy = NMatrix.new([1,@units[0].size],0.0).transpose
+            @cross_entropy = NMatrix.new([1,@units[0].size],0.0)
 
             # μ = 0, σ = 0.01のガウス分布を作成
             @bell = RandomBell.new(mu: 0, sigma: 0.01, range: -0.03..0.03)
@@ -71,28 +69,27 @@ module RBMR
             # NMatrixの配列を作成 重み
             # ガウス分布に従うように重みをランダムに初期化
             weights_array = []
-            @weights_geometry[0][0].times do |i|
-              @weights_geometry[0][1].times do |j|
+            @weights_geometry[0].times do |i|
+              @weights_geometry[0].times do |j|
                 weights_array.push(@bell.rand)
               end
             end
 
             @weights = []
-            @weights.push(NMatrix.new(@weights_geometry[0],weights_array))
-
+            @weights.push(NMatrix.new(@weights_geometry,weights_array))
             puts "@weights: #{@weights}"
         end
 
         # RBMへの入力を取得
         # 引数: *vaules→入力
         def input(*values)
-          @units[0] = N[values.flatten,:dtype => :float64].transpose
+          @units[0] = N[values.flatten,:dtype => :float64]
           @inputs = @units[0].dup
         end
 
         # 隠れ層への入力
         def input_hidden_layer(*values)
-          @units[1] = N[values.flatten,:dtype => :float64].transpose
+          @units[1] = N[values.flatten,:dtype => :float64]
           compute_hidden
           puts "hidden_units: #{@units[1]}"
           puts "visible units: #{@units[0]}"
@@ -102,8 +99,7 @@ module RBMR
         # P(h|v)と隠れ層のユニットの値を計算
         def compute_visible
           # 隠れ層の条件付き確率を計算
-          @pre_sigmoid = NMatrix::BLAS.gemm(@weights[0],@units[0],@biases[0])
-
+          @pre_sigmoid = NMatrix::BLAS.gemm(@units[0],@weights[0],@biases[0])
           @pre_sigmoid.each_with_index do |data,i|
             @probability[0][i] = Sigmoid.call(data)
           end
@@ -117,7 +113,7 @@ module RBMR
         # P(v|h)と可視層のユニットの値を計算
         def compute_hidden
           # 可視層の条件付き確率を計算
-          @pre_sigmoid = NMatrix::BLAS.gemm(@weights[0],@units[1],nil,1.0,0.0,:transpose) + @biases[1]
+          @pre_sigmoid = NMatrix::BLAS.gemm(@units[1],@weights[0].transpose,@biases[1])
           @pre_sigmoid.each_with_index do |data,i|
             @probability[1][i] = Sigmoid.call(data)
           end
@@ -132,8 +128,8 @@ module RBMR
         # 導関数の初期化
         def initialize_derivatives
           # バイアスの導関数の初期化
-          @derivative_visible_bias = NMatrix.new([1,@units[0].size],0.0).transpose
-          @derivative_hidden_bias = NMatrix.new([1,@units[1].size],0.0).transpose
+          @derivative_visible_bias = NMatrix.new([1,@units[0].size],0.0)
+          @derivative_hidden_bias = NMatrix.new([1,@units[1].size],0.0)
 
           # 重みの導関数の初期化
           @derivative_weights = @weights_geometry.map do |geo|
@@ -143,7 +139,7 @@ module RBMR
 
         # 重みの導関数を計算
         def weights_derivative
-          @derivative_weights = NMatrix::BLAS.gemm(@hidden_probability,@inputs.transpose) - NMatrix::BLAS.gemm(@probability[0],@units[0].transpose)
+          @derivative_weights = NMatrix::BLAS.gemm(@inputs,@hidden_probability,nil,1.0,0.0,:transpose) - NMatrix::BLAS.gemm(@units[0],@probability[0],nil,1.0,0.0,:transpose)
         end
 
         # バイアスの導関数を計算
@@ -211,8 +207,8 @@ module RBMR
         def compute_mean_cross_entropy(number_of_data)
           # 交差エントロピーの最小化はKLダイバージェンスの最小化と等しい
           # 真の確率分布のエントロピーは一定のため
-          @mean_cross_entropy = -@cross_entropy.sum/number_of_data.to_f
-          @cross_entropy = NMatrix.new([1,@units[0].size],0.0).transpose
+          @mean_cross_entropy = -@cross_entropy.to_a.sum/number_of_data.to_f
+          @cross_entropy = NMatrix.new([1,@units[0].size],0.0)
           return @mean_cross_entropy
         end
 
@@ -269,7 +265,7 @@ module RBMR
             biases_matrix = hash["@biases"].to_a
             @biases = []
             @columns.size.times do |i|
-              @biases.push(N[biases_matrix[i].split(',').map!{ |item| item.delete("/[\-]/").gsub(" ","").to_f}].transpose)
+              @biases.push(N[biases_matrix[i].split(',').map!{ |item| item.delete("/[\-]/").gsub(" ","").to_f}])
             end
             puts "#{@biases}"
 
@@ -277,7 +273,7 @@ module RBMR
             weights_matrix = hash["@weights"].to_a
             @weights = []
             weights_array = weights_matrix[0].split(',').map!{ |item| item.delete("/[\-]/").gsub(" ","").to_f}.to_a
-            @weights.push(NMatrix.new(@weights_geometry[0],weights_array))
+            @weights.push(NMatrix.new(@weights_geometry,weights_array))
             puts "#{@weights}"
           end
         end
