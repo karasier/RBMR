@@ -100,9 +100,10 @@ module RBMR
         def compute_visible
           # 隠れ層の条件付き確率を計算
           @pre_sigmoid = NMatrix::BLAS.gemm(@units[0],@weights[0],@biases[0])
-          @pre_sigmoid.each_with_index do |data,i|
-            @probability[0][i] = Sigmoid.call(data)
-          end
+          @probability[0] = NMatrix.ones_like(@pre_sigmoid)/((-@pre_sigmoid).exp + 1)
+          #@pre_sigmoid.each_with_index do |data,i|
+          #  @probability[0][i] = Sigmoid.call(data)
+          #end
 
           # 隠れ層のユニットの値を計算
           @probability[0].each_with_index do |prob,i|
@@ -113,10 +114,11 @@ module RBMR
         # P(v|h)と可視層のユニットの値を計算
         def compute_hidden
           # 可視層の条件付き確率を計算
-          @pre_sigmoid = NMatrix::BLAS.gemm(@units[1],@weights[0].transpose,@biases[1])
-          @pre_sigmoid.each_with_index do |data,i|
-            @probability[1][i] = Sigmoid.call(data)
-          end
+          @pre_sigmoid = NMatrix::BLAS.gemm(@units[1],@weights[0],nil,1.0,0.0,false,:transpose) + @biases[1]
+          @probability[1] = NMatrix.ones_like(@pre_sigmoid)/((-@pre_sigmoid).exp + 1)
+          #@pre_sigmoid.each_with_index do |data,i|
+          #  @probability[1][i] = Sigmoid.call(data)
+          #end
 
           # 可視層のユニットの値を計算
           @probability[1].each_with_index do |prob,i|
