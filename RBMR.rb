@@ -35,6 +35,10 @@ module RBMR
             # 可視層→隠れ層の順で格納
             @units = @columns.map{ |col| NMatrix.new([1,col],0.0) }
 
+            # シグモイド計算用 全要素が1のベクトル
+            @ones_vector_visible = NMatrix.ones_like(@units[0])
+            @ones_vector_hidden = NMatrix.ones_like(@units[1])
+
             # ユニットが1をとる条件付き確率を格納
             # P(hidden|visible)→P(visible|hidden)の順で格納
             @probability = @columns.reverse.map{ |col| NMatrix.new([1,col],0.0) }
@@ -100,10 +104,7 @@ module RBMR
         def compute_visible
           # 隠れ層の条件付き確率を計算
           @pre_sigmoid = NMatrix::BLAS.gemm(@units[0],@weights[0],@biases[0])
-          @probability[0] = NMatrix.ones_like(@pre_sigmoid)/((-@pre_sigmoid).exp + 1)
-          #@pre_sigmoid.each_with_index do |data,i|
-          #  @probability[0][i] = Sigmoid.call(data)
-          #end
+          @probability[0] = @ones_vector_hidden/((-@pre_sigmoid).exp + 1)
 
           # 隠れ層のユニットの値を計算
           @probability[0].each_with_index do |prob,i|
@@ -114,11 +115,9 @@ module RBMR
         # P(v|h)と可視層のユニットの値を計算
         def compute_hidden
           # 可視層の条件付き確率を計算
-          @pre_sigmoid = NMatrix::BLAS.gemm(@units[1],@weights[0],nil,1.0,0.0,false,:transpose) + @biases[1]
-          @probability[1] = NMatrix.ones_like(@pre_sigmoid)/((-@pre_sigmoid).exp + 1)
-          #@pre_sigmoid.each_with_index do |data,i|
-          #  @probability[1][i] = Sigmoid.call(data)
-          #end
+          @product_of_units_and_weights = NMatrix::BLAS.gemm(@weights[0],@units[1],nil,1.0,0.0,false,:transpose)
+          @pre_sigmoid = @product_of_units_and_weights.transpose + @biases[1]
+          @probability[1] = @ones_vector_visible/((-@pre_sigmoid).exp + 1)
 
           # 可視層のユニットの値を計算
           @probability[1].each_with_index do |prob,i|
@@ -187,20 +186,11 @@ module RBMR
 
         # 交差エントロピーの計算
         def compute_cross_entropy
-          @log_probability = @probability[1].dup
-          @probability[1].each_with_index do |data,i|
-            @log_probability[i] = Math.log(data)
-          end
+          @log_probability = @probability[1].log
 
-          @log_probability_dash = @probability[1].dup
-          @probability[1].each_with_index do |data,i|
-            @log_probability_dash[i] = Math.log(1 - data)
-          end
+          @log_probability_dash = (-@probability[1] + 1).log
 
-          @inputs_dash = @inputs.dup
-          @inputs_dash.each_with_index do |data,i|
-            @inputs_dash[i] = 1 - data
-          end
+          @inputs_dash = (-@inputs+1)                    
 
           @cross_entropy += ((@inputs * @log_probability) + (@inputs_dash * @log_probability_dash))
         end
