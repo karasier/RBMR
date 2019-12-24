@@ -15,7 +15,7 @@ data = [[1,1,1,0,0,0]]
   data.size.times do |j|
     # usage: rbm.input([inputs])
     rbm.input(data[j])
-
+    
     # usage: rbm.run(number_of_steps) steps → Contrastive Divergence steps
     rbm.run(1)
     rbm.compute_cross_entropy
@@ -30,7 +30,7 @@ end
 
 puts "\nUnderstood!\n\n"
 
-rbm.reconstruct([1,1,1,0,0,0])
+rbm.reconstruct(data[0])
 
 # reconstruct from feature
 #rbm.input_hidden_layer(5.times.map{rand(0..1).to_i})

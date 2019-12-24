@@ -15,6 +15,7 @@ module RBMR
         # Creates a RBM from columns giving each the size
         # of a column of neurons (input and output comprised).
         def initialize(*columns)
+
             # 学習率
             @training_rate = 0.1
             # Ensure columns is a proper array.
@@ -56,13 +57,14 @@ module RBMR
             @cross_entropy = NMatrix.new([1,@units[0].size],0.0)
 
             # μ = 0, σ = 0.01のガウス分布を作成
-            @bell = RandomBell.new(mu: 0, sigma: 0.01, range: -0.03..0.03)
+            @bell = RandomBell.new(mu: 0, sigma: 0.01, range: -Float::INFINITY..Float::INFINITY)
 
-            @error = 0
+            @error_times = 0
         end
 
 
-        # Set up the NN to random values.
+        # Set up the RBM to random values.
+        # パラメータをランダムに初期化
         def randomize
             # Create random fast matrices for the biases.
             # NMatrixの配列を作成 バイアス
@@ -82,6 +84,12 @@ module RBMR
             @weights = []
             @weights.push(NMatrix.new(@weights_geometry,weights_array))
             puts "@weights: #{@weights}"
+        end
+
+        # 入力データの標準化
+        def standardize
+          @units[0] = (@units[0] - @units[0].mean(1)[0])/@units[0].std(1)[0]
+          @inputs = @units[0].dup          
         end
 
         # RBMへの入力を取得
@@ -190,15 +198,13 @@ module RBMR
 
           @log_probability_dash = (-@probability[1] + 1).log
 
-          @inputs_dash = (-@inputs+1)                    
+          @inputs_dash = (-@inputs+1)
 
           @cross_entropy += ((@inputs * @log_probability) + (@inputs_dash * @log_probability_dash))
         end
 
         # 平均交差エントロピーの計算
         def compute_mean_cross_entropy(number_of_data)
-          # 交差エントロピーの最小化はKLダイバージェンスの最小化と等しい
-          # 真の確率分布のエントロピーは一定のため
           @mean_cross_entropy = -@cross_entropy.to_a.sum/number_of_data.to_f
           @cross_entropy = NMatrix.new([1,@units[0].size],0.0)
           return @mean_cross_entropy
@@ -214,10 +220,10 @@ module RBMR
           end
 
           if error then
-            @error += 1
+            @error_times += 1
           end
 
-          return @error.to_f/times.to_f
+          return @error_times.to_f/times.to_f
         end
         # 実行用
         def run(number_of_steps)
