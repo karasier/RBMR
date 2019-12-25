@@ -1,8 +1,7 @@
 require_relative 'RBMR'
 
-# usage: rbm = RBMR::RBM.new([number of visible units,number of hidden units])
-rbm = RBMR::RBM.new([6,5])
-
+# usage: rbm = RBMR::RBM.new([number of visible units,number of hidden units],visible units' type(default: Bernoulli))
+rbm = RBMR::RBM.new(columns: [6,5],visible_units_type: :Gaussian)
 # randomize biases & weights
 rbm.randomize
 
@@ -15,7 +14,7 @@ data = [[1,1,1,0,0,0]]
   data.size.times do |j|
     # usage: rbm.input([inputs])
     rbm.input(data[j])
-    
+
     # usage: rbm.run(number_of_steps) steps → Contrastive Divergence steps
     rbm.run(1)
     rbm.compute_cross_entropy

@@ -9,15 +9,16 @@ require 'random_bell'
 
 module RBMR
 
-    Sigmoid = proc { |x| 1 / (1 + Math::E**(-x)) }
-    ##
     class RBM
         # Creates a RBM from columns giving each the size
-        # of a column of neurons (input and output comprised).
-        def initialize(*columns)
-
+        # of a column of units.
+        def initialize(columns:,visible_units_type: :Bernoulli)
             # 学習率
             @training_rate = 0.1
+
+            # 可視ユニットの状態を設定
+            @visible_units_type = visible_units_type
+
             # Ensure columns is a proper array.
             # 各層のニューロンの数を配列にする
             @columns = columns.flatten
@@ -60,6 +61,8 @@ module RBMR
             @bell = RandomBell.new(mu: 0, sigma: 0.01, range: -Float::INFINITY..Float::INFINITY)
 
             @error_times = 0
+
+            @computation_method = { Bernoulli: method(:compute_bernoulli_units), Gaussian: method(:compute_gaussian_units) }
         end
 
 
@@ -70,7 +73,6 @@ module RBMR
             # NMatrixの配列を作成 バイアス
             @biases = @biases_geometry.map { |geo| NMatrix.new(geo,0.0)}
             puts "@biases: #{@biases}"
-
             # Create random fast matrices for the weights.
             # NMatrixの配列を作成 重み
             # ガウス分布に従うように重みをランダムに初期化
@@ -88,19 +90,30 @@ module RBMR
 
         # 入力データの標準化
         def standardize
-          @units[0] = (@units[0] - @units[0].mean(1)[0])/@units[0].std(1)[0]
-          @inputs = @units[0].dup          
-        end
-
-        # RBMへの入力を取得
-        # 引数: *vaules→入力
-        def input(*values)
-          @units[0] = N[values.flatten,:dtype => :float64]
+          @mean = @units[0].mean(1)[0]
+          @standard_deviation = @units[0].std(1)[0]
+          @units[0] = (@units[0] - @mean) / @standard_deviation
           @inputs = @units[0].dup
         end
 
+        # データを入力データのスケールに戻す
+        def unstandardize
+          @units[0] = @units[0] * @standard_deviation + @mean
+          @inputs = @inputs * @standard_deviation + @mean
+        end
+
+        # RBMへの入力を取得
+        def input(values)
+          @units[0] = N[values.flatten,:dtype => :float64]
+          @inputs = @units[0].dup
+
+          if @visible_units_type == :Gaussian
+            standardize
+          end
+        end
+
         # 隠れ層への入力
-        def input_hidden_layer(*values)
+        def input_hidden_layer(values)
           @units[1] = N[values.flatten,:dtype => :float64]
           compute_hidden
           puts "hidden_units: #{@units[1]}"
@@ -112,7 +125,7 @@ module RBMR
         def compute_visible
           # 隠れ層の条件付き確率を計算
           @pre_sigmoid = NMatrix::BLAS.gemm(@units[0],@weights[0],@biases[0])
-          @probability[0] = @ones_vector_hidden/((-@pre_sigmoid).exp + 1)
+          @probability[0] = @ones_vector_hidden / ((-@pre_sigmoid).exp + 1)
 
           # 隠れ層のユニットの値を計算
           @probability[0].each_with_index do |prob,i|
@@ -122,10 +135,15 @@ module RBMR
 
         # P(v|h)と可視層のユニットの値を計算
         def compute_hidden
+          @computation_method[@visible_units_type].call
+        end
+
+        # ベルヌーイユニットの計算
+        def compute_bernoulli_units
           # 可視層の条件付き確率を計算
-          @product_of_units_and_weights = NMatrix::BLAS.gemm(@weights[0],@units[1],nil,1.0,0.0,false,:transpose)
+          @product_of_units_and_weights = NMatrix::BLAS.gemm(@weights[0],@units[1].transpose)
           @pre_sigmoid = @product_of_units_and_weights.transpose + @biases[1]
-          @probability[1] = @ones_vector_visible/((-@pre_sigmoid).exp + 1)
+          @probability[1] = @ones_vector_visible / ((-@pre_sigmoid).exp + 1)
 
           # 可視層のユニットの値を計算
           @probability[1].each_with_index do |prob,i|
@@ -133,6 +151,23 @@ module RBMR
           end
         end
 
+        # ガウシアンユニットの計算
+        def compute_gaussian_units
+          # 隠れユニットと重みの積
+          @product_of_units_and_weights = NMatrix::BLAS.gemm(@weights[0],@units[1].transpose)
+
+          # ガウス分布の平均の計算
+          @mean_of_gaussian_distribution = @product_of_units_and_weights.transpose + @biases[1]
+
+          # 可視ユニットの値を計算
+          @mean_of_gaussian_distribution.each_with_index do |mean,i|
+            @units[0][i] = RandomBell.new(mu: mean, sigma: 1, range: -Float::INFINITY..Float::INFINITY).rand
+          end
+
+          # ガウス分布の計算
+          @difference_of_units_and_mean = @units[0] - @mean_of_gaussian_distribution
+          @probability[1] = (-((@difference_of_units_and_mean * @difference_of_units_and_mean) / 2)).exp / Math.sqrt(2 * Math::PI)
+        end
 
         # 導関数の初期化
         def initialize_derivatives
@@ -198,14 +233,14 @@ module RBMR
 
           @log_probability_dash = (-@probability[1] + 1).log
 
-          @inputs_dash = (-@inputs+1)
+          @inputs_dash = (-@inputs + 1)
 
           @cross_entropy += ((@inputs * @log_probability) + (@inputs_dash * @log_probability_dash))
         end
 
         # 平均交差エントロピーの計算
         def compute_mean_cross_entropy(number_of_data)
-          @mean_cross_entropy = -@cross_entropy.to_a.sum/number_of_data.to_f
+          @mean_cross_entropy = -@cross_entropy.to_a.sum / number_of_data.to_f
           @cross_entropy = NMatrix.new([1,@units[0].size],0.0)
           return @mean_cross_entropy
         end
@@ -223,7 +258,7 @@ module RBMR
             @error_times += 1
           end
 
-          return @error_times.to_f/times.to_f
+          return @error_times.to_f / times.to_f
         end
         # 実行用
         def run(number_of_steps)
@@ -232,7 +267,7 @@ module RBMR
           update_parameters
         end
 
-        def reconstruct(*values)
+        def reconstruct(values)
           input(values)
           compute_visible
           compute_hidden
@@ -241,6 +276,9 @@ module RBMR
 
         # 結果の出力用
         def outputs
+          if @visible_units_type == :Gaussian
+            unstandardize
+          end
           puts "input: #{@inputs}"
           puts "visible units: #{@units[0]}"
           puts "P(v|h): #{@probability[1]}"
@@ -248,7 +286,7 @@ module RBMR
 
         # パラメータをファイルに保存するメソッド
         def save_parameters(filename)
-          hash = {"@columns" => @columns,"@biases" => @biases,"@weights" => @weights}
+          hash = {"@columns" => @columns,"@visible_units_type" => @visible_units_type,"@biases" => @biases,"@weights" => @weights}
           File.open(filename,"w+") do |f|
             f.puts(JSON.pretty_generate(hash))
           end
@@ -258,7 +296,7 @@ module RBMR
         def load_parameters(filename)
           File.open(filename,"r+") do |f|
             hash = JSON.load(f)
-            initialize(@columns)
+            initialize(columns: @columns,visible_units_type: @visible_units_type.to_sym)
 
             biases_matrix = hash["@biases"].to_a
             @biases = []
