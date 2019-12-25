@@ -6,6 +6,4 @@ This library is middle of development.
 
 ## Function(currently)
 - Bernoulli RBM
-
-## Scheduled
 - Gaussian-Bernoulli RBM
