@@ -1,8 +1,7 @@
 require_relative 'RBMR'
 
-# usage: rbm = RBMR::RBM.new([number of visible units,number of hidden units])
-rbm = RBMR::RBM.new([6,5])
-
+# usage: rbm = RBMR::RBM.new([number of visible units,number of hidden units],visible units' type(default: Bernoulli))
+rbm = RBMR::RBM.new(columns: [6,5],visible_units_type: :Gaussian)
 # randomize biases & weights
 rbm.randomize
 
@@ -30,7 +29,7 @@ end
 
 puts "\nUnderstood!\n\n"
 
-rbm.reconstruct([1,1,1,0,0,0])
+rbm.reconstruct(data[0])
 
 # reconstruct from feature
 #rbm.input_hidden_layer(5.times.map{rand(0..1).to_i})
