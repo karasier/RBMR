@@ -1,5 +1,4 @@
 require 'nmatrix'
-require 'benchmark'
 require 'json'
 require 'random_bell'
 
@@ -14,7 +13,7 @@ module RBMR
         # of a column of units.
         def initialize(columns:,visible_units_type: :Bernoulli)
             # 学習率
-            @training_rate = 0.1
+            @training_rate = 0.001
 
             # 可視ユニットの状態を設定
             @visible_units_type = visible_units_type
@@ -62,7 +61,8 @@ module RBMR
 
             @error_times = 0
 
-            @computation_method = { Bernoulli: method(:compute_bernoulli_units), Gaussian: method(:compute_gaussian_units) }
+            @computation_methods = { Bernoulli: method(:compute_bernoulli_units), Gaussian: method(:compute_gaussian_units) }
+            @derivative_methods = { Bernoulli: method(:compute_derivatives_bernoulli), Gaussian: method(:compute_derivatives_gaussian) }
         end
 
 
@@ -135,7 +135,7 @@ module RBMR
 
         # P(v|h)と可視層のユニットの値を計算
         def compute_hidden
-          @computation_method[@visible_units_type].call
+          @computation_methods[@visible_units_type].call
         end
 
         # ベルヌーイユニットの計算
@@ -166,7 +166,7 @@ module RBMR
 
           # ガウス分布の計算
           @difference_of_units_and_mean = @units[0] - @mean_of_gaussian_distribution
-          @probability[1] = (-((@difference_of_units_and_mean * @difference_of_units_and_mean) / 2)).exp / Math.sqrt(2 * Math::PI)
+          @probability[1] = (-(@difference_of_units_and_mean ** 2) / 2).exp / Math.sqrt(2 * Math::PI)
         end
 
         # 導関数の初期化
@@ -181,21 +181,38 @@ module RBMR
           end
         end
 
-        # 重みの導関数を計算
-        def weights_derivative
+        # 重みの導関数を計算(Bernoulli RBM)
+        def weights_derivative_bernoulli
           @derivative_weights = NMatrix::BLAS.gemm(@inputs,@hidden_probability,nil,1.0,0.0,:transpose) - NMatrix::BLAS.gemm(@units[0],@probability[0],nil,1.0,0.0,:transpose)
         end
 
-        # バイアスの導関数を計算
-        def bias_derivative
+        # 重みの導関数を計算(Gaussian-Bernoulli RBM)
+        def weights_derivative_gaussian
+          @derivative_weights = NMatrix::BLAS.gemm(@inputs,@hidden_probability,nil,1.0,0.0,:transpose) - NMatrix::BLAS.gemm(@probability[1],@probability[0],nil,1.0,0.0,:transpose)
+        end
+
+        # バイアスの導関数を計算(Bernoulli RBM)
+        def bias_derivative_bernoulli
           @derivative_visible_bias = (@inputs - @units[0])
           @derivative_hidden_bias = (@hidden_probability - @probability[0])
         end
 
-        # 導関数の計算
-        def compute_derivatives
-          bias_derivative
-          weights_derivative
+        # バイアスの導関数を計算(Gaussian-Bernoulli RBM)
+        def bias_derivative_gaussian
+          @derivative_visible_bias = (@inputs - @probability[1])
+          @derivative_hidden_bias = (@hidden_probability - @probability[0])
+        end
+
+        # 導関数の計算(Bernoulli RBM)
+        def compute_derivatives_bernoulli
+          bias_derivative_bernoulli
+          weights_derivative_bernoulli
+        end
+
+        # 導関数の計算(Gaussian-Bernoulli RBM)
+        def compute_derivatives_gaussian
+          bias_derivative_gaussian
+          weights_derivative_gaussian
         end
 
         # バイアスの更新
@@ -263,7 +280,7 @@ module RBMR
         # 実行用
         def run(number_of_steps)
           sampling(number_of_steps)
-          compute_derivatives
+          @derivative_methods[@visible_units_type].call
           update_parameters
         end
 
@@ -271,7 +288,7 @@ module RBMR
           input(values)
           compute_visible
           compute_hidden
-          outputs
+          return @units[0]
         end
 
         # 結果の出力用
@@ -281,7 +298,7 @@ module RBMR
           end
           puts "input: #{@inputs}"
           puts "visible units: #{@units[0]}"
-          puts "P(v|h): #{@probability[1]}"
+          puts "p(v|h): #{@probability[1]}"
         end
 
         # パラメータをファイルに保存するメソッド
