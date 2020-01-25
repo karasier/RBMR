@@ -11,9 +11,9 @@ module RBMR
     class RBM
         # Creates a RBM from columns giving each the size
         # of a column of units.
-        def initialize(columns:,visible_units_type: :Bernoulli)
+        def initialize(columns,visible_units_type = :Bernoulli)
             # 学習率
-            @training_rate = 0.001
+            @training_rate = 0.1
 
             # 可視ユニットの状態を設定
             @visible_units_type = visible_units_type

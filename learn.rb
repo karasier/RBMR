@@ -1,8 +1,8 @@
 require_relative 'RBMR'
 
 # usage: rbm = RBMR::RBM.new([number of visible units,number of hidden units],visible unit's type(default: Bernoulli))
-# visible_units_type -> :Bernoulli, :Gaussian
-rbm = RBMR::RBM.new(columns: [6,5],visible_units_type: :Bernoulli)
+# Available -> :Bernoulli, :Gaussian
+rbm = RBMR::RBM.new([6,5],:Bernoulli)
 
 # randomize biases & weights
 rbm.randomize
