@@ -11,7 +11,7 @@ images = mnist.load_images
 puts "Initializing network"
 
 # usage: rbm = RBMR::RBM.new([number of visible units,number of hidden units],visible units' type(default: Bernoulli))
-rbm = RBMR::RBM.new(columns: [784,51],visible_units_type: :Bernoulli)
+rbm = RBMR::RBM.new([784,51],:Bernoulli)
 
 # randomize biases & weights
 rbm.randomize
@@ -26,7 +26,7 @@ imgs = imgs.map { |image| mnist.binarize(image).flatten }
 puts "Runnning..."
 
 c = 0
-10.times do
+1.times do
   imgs.each_with_index do |inputs,index|
 
     if c > 50
@@ -45,6 +45,7 @@ c = 0
 end
 
 puts "\nUnderstood!\n\n"
+gets
 
 c = 0
 imgs.each_with_index do |inputs,index|
