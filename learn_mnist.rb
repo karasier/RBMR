@@ -1,5 +1,5 @@
-require_relative 'RBMR'
-require_relative 'mnist_loader'
+require_relative './lib/rbmr'
+require_relative './lib/mnist_loader'
 
 
 puts "Loading images"
